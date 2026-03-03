@@ -388,6 +388,10 @@ class SimpleEngine(BaseEngine):
                 "add_generation_prompt": True,
                 "enable_thinking": enable_thinking,
             }
+            # Merge caller-provided chat_template_kwargs (may override enable_thinking)
+            caller_template_kwargs = kwargs.pop("chat_template_kwargs", None)
+            if caller_template_kwargs:
+                template_kwargs.update(caller_template_kwargs)
             if template_tools:
                 template_kwargs["tools"] = template_tools
 

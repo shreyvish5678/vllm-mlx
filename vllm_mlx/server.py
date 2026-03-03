@@ -55,6 +55,9 @@ from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+# Chat conversation logger
+from .chat_logger import log_chat
+
 # Import from new modular API
 # Re-export for backwards compatibility with tests
 from .api.anthropic_adapter import anthropic_to_openai, openai_to_anthropic
@@ -115,9 +118,15 @@ _default_max_tokens: int = 32768
 _default_timeout: float = 300.0  # Default request timeout in seconds (5 minutes)
 _default_temperature: float | None = None  # Set via --default-temperature
 _default_top_p: float | None = None  # Set via --default-top-p
+_default_top_k: int | None = None  # Set via --default-top-k
+_default_min_p: float | None = None  # Set via --default-min-p
+_default_thinking_mode: bool = False  # Set via --thinking-mode
+_default_chat_template_kwargs: dict | None = None  # Set via --chat-template-kwargs
 
 _FALLBACK_TEMPERATURE = 0.7
 _FALLBACK_TOP_P = 0.9
+_FALLBACK_TOP_K = 0
+_FALLBACK_MIN_P = 0.0
 
 
 def _resolve_temperature(request_value: float | None) -> float:
@@ -136,6 +145,48 @@ def _resolve_top_p(request_value: float | None) -> float:
     if _default_top_p is not None:
         return _default_top_p
     return _FALLBACK_TOP_P
+
+
+def _resolve_top_k(request_value: int | None) -> int:
+    """Resolve top_k: request > CLI default > fallback."""
+    if request_value is not None:
+        return request_value
+    if _default_top_k is not None:
+        return _default_top_k
+    return _FALLBACK_TOP_K
+
+
+def _resolve_min_p(request_value: float | None) -> float:
+    """Resolve min_p: request > CLI default > fallback."""
+    if request_value is not None:
+        return request_value
+    if _default_min_p is not None:
+        return _default_min_p
+    return _FALLBACK_MIN_P
+
+
+def _resolve_chat_template_kwargs(
+    request_kwargs: dict | None,
+    request_thinking_mode: bool | None,
+) -> dict | None:
+    """Build chat_template_kwargs from defaults + request overrides."""
+    resolved = dict(_default_chat_template_kwargs or {})
+
+    # Apply default thinking mode
+    if _default_thinking_mode:
+        resolved.setdefault("enable_thinking", True)
+
+    # Request-level overrides
+    if request_kwargs:
+        resolved.update(request_kwargs)
+
+    # Request-level thinking_mode overrides
+    if request_thinking_mode is True:
+        resolved["enable_thinking"] = True
+    elif request_thinking_mode is False:
+        resolved["enable_thinking"] = False
+
+    return resolved if resolved else None
 
 
 # Global MCP manager
@@ -1348,7 +1399,17 @@ async def create_chat_completion(request: ChatCompletionRequest, raw_request: Re
         "max_tokens": request.max_tokens or _default_max_tokens,
         "temperature": _resolve_temperature(request.temperature),
         "top_p": _resolve_top_p(request.top_p),
+        "min_p": _resolve_min_p(request.min_p),
+        "top_k": _resolve_top_k(request.top_k),
     }
+
+    # Resolve chat template kwargs (thinking mode, etc.)
+    resolved_template_kwargs = _resolve_chat_template_kwargs(
+        request.chat_template_kwargs,
+        request.thinking_mode,
+    )
+    if resolved_template_kwargs:
+        chat_kwargs["chat_template_kwargs"] = resolved_template_kwargs
 
     # Add multimodal content
     if has_media:
@@ -1413,6 +1474,21 @@ async def create_chat_completion(request: ChatCompletionRequest, raw_request: Re
 
     # Determine finish reason
     finish_reason = "tool_calls" if tool_calls else output.finish_reason
+
+    # Log conversation to JSONL
+    response_text = clean_output_text(cleaned_text) if cleaned_text else (output.text or "")
+    log_chat(
+        messages=messages,
+        assistant_response=response_text,
+        metadata={
+            "model": request.model,
+            "stream": False,
+            "prompt_tokens": output.prompt_tokens,
+            "completion_tokens": output.completion_tokens,
+            "latency_s": round(elapsed, 3),
+            "finish_reason": finish_reason,
+        },
+    )
 
     return ChatCompletionResponse(
         model=request.model,
@@ -2066,6 +2142,19 @@ async def stream_chat_completion(
     tokens_per_sec = completion_tokens / elapsed if elapsed > 0 else 0
     logger.info(
         f"Chat completion (stream): {completion_tokens} tokens in {elapsed:.2f}s ({tokens_per_sec:.1f} tok/s)"
+    )
+
+    # Log conversation to JSONL
+    log_chat(
+        messages=messages,
+        assistant_response=accumulated_text,
+        metadata={
+            "model": request.model,
+            "stream": True,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "latency_s": round(elapsed, 3),
+        },
     )
 
     # Send final chunk with usage if requested

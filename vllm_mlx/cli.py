@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+import json
 import sys
 
 
@@ -58,6 +59,15 @@ def serve_command(args):
         server._default_temperature = args.default_temperature
     if args.default_top_p is not None:
         server._default_top_p = args.default_top_p
+    if args.default_top_k is not None:
+        server._default_top_k = args.default_top_k
+    if args.default_min_p is not None:
+        server._default_min_p = args.default_min_p
+
+    # Configure thinking mode and chat template kwargs
+    server._default_thinking_mode = args.thinking_mode
+    if args.chat_template_kwargs:
+        server._default_chat_template_kwargs = args.chat_template_kwargs
 
     # Configure reasoning parser
     if args.reasoning_parser:
@@ -103,6 +113,8 @@ def serve_command(args):
         print(f"  Reasoning: ENABLED (parser: {args.reasoning_parser})")
     else:
         print("  Reasoning: Use --reasoning-parser to enable")
+    if args.thinking_mode:
+        print("  Thinking mode: ENABLED")
     print("=" * 60)
 
     print(f"Loading model: {args.model}")
@@ -819,6 +831,38 @@ Examples:
         type=float,
         default=None,
         help="Override default top_p for all requests (default: use model default)",
+    )
+    serve_parser.add_argument(
+        "--default-top-k",
+        type=int,
+        default=None,
+        help="Override default top_k for all requests (0 = disabled, default: use model default)",
+    )
+    serve_parser.add_argument(
+        "--default-min-p",
+        type=float,
+        default=None,
+        help="Override default min_p for all requests (default: use model default)",
+    )
+    # Thinking mode / chat template kwargs
+    serve_parser.add_argument(
+        "--thinking-mode",
+        dest="thinking_mode",
+        action="store_true",
+        default=False,
+        help="Enable thinking mode (sets enable_thinking=True in chat template kwargs).",
+    )
+    serve_parser.add_argument(
+        "--no-thinking-mode",
+        dest="thinking_mode",
+        action="store_false",
+        help="Disable thinking mode.",
+    )
+    serve_parser.add_argument(
+        "--chat-template-kwargs",
+        type=json.loads,
+        default=None,
+        help="JSON object passed as chat_template_kwargs to apply_chat_template.",
     )
     # Embedding model option
     serve_parser.add_argument(

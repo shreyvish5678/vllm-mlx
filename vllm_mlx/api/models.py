@@ -158,6 +158,8 @@ class ChatCompletionRequest(BaseModel):
     messages: list[Message]
     temperature: float | None = None
     top_p: float | None = None
+    top_k: int | None = None
+    min_p: float | None = None
     max_tokens: int | None = None
     stream: bool = False
     stream_options: StreamOptions | None = (
@@ -174,6 +176,9 @@ class ChatCompletionRequest(BaseModel):
     video_max_frames: int | None = None
     # Request timeout in seconds (None = use server default)
     timeout: float | None = None
+    # Thinking / chat template control
+    thinking_mode: bool | None = None
+    chat_template_kwargs: dict | None = None
 
 
 class AssistantMessage(BaseModel):

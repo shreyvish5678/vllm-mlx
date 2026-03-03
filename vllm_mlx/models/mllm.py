@@ -709,6 +709,9 @@ class MLXMultimodalLM:
         self.config = None
         self._loaded = False
 
+        # Persistent KV cache for text-only requests (reused across calls)
+        self._prompt_cache = None
+
         # Initialize MLLM prefix cache manager (with vision embedding caching)
         self._cache_manager: MLLMPrefixCacheManager | None = None
         if enable_cache:
@@ -1270,11 +1273,14 @@ class MLXMultimodalLM:
                     skip_prompt_processing = False
 
         if prompt_cache is None and self.model is not None:
-            # Create fresh cache
-            try:
-                prompt_cache = vlm_cache.make_prompt_cache(self.model.language_model)
-            except Exception:
-                prompt_cache = None
+            # For text-only requests, reuse persistent cache for prefix caching
+            if not all_images and self._prompt_cache is not None:
+                prompt_cache = self._prompt_cache
+            else:
+                try:
+                    prompt_cache = vlm_cache.make_prompt_cache(self.model.language_model)
+                except Exception:
+                    prompt_cache = None
 
         result = generate(
             self.model,
@@ -1288,6 +1294,10 @@ class MLXMultimodalLM:
             skip_prompt_processing=skip_prompt_processing,
             **kwargs,
         )
+
+        # Persist cache for text-only requests so next call reuses KV state
+        if not all_images and prompt_cache is not None:
+            self._prompt_cache = prompt_cache
 
         # Store KV cache for future reuse (on cache miss)
         # IMPORTANT: We need to store only the prompt portion, not generated tokens
@@ -1546,10 +1556,14 @@ class MLXMultimodalLM:
 
         # Create new cache if needed
         if prompt_cache is None and self.model is not None:
-            try:
-                prompt_cache = vlm_cache.make_prompt_cache(self.model.language_model)
-            except Exception:
-                prompt_cache = None
+            # For text-only requests, reuse persistent cache for prefix caching
+            if not all_images and self._prompt_cache is not None:
+                prompt_cache = self._prompt_cache
+            else:
+                try:
+                    prompt_cache = vlm_cache.make_prompt_cache(self.model.language_model)
+                except Exception:
+                    prompt_cache = None
 
         # Stream generate tokens with cache
         accumulated_text = ""
@@ -1576,6 +1590,10 @@ class MLXMultimodalLM:
                 prompt_tokens=getattr(chunk, "prompt_tokens", 0),
                 completion_tokens=token_count,
             )
+
+        # Persist cache for text-only requests so next call reuses KV state
+        if not all_images and prompt_cache is not None:
+            self._prompt_cache = prompt_cache
 
         # Final yield with finish_reason
         yield MLLMOutput(

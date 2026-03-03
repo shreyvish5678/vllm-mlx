@@ -107,6 +107,8 @@ class MLXLanguageModel:
         self,
         temperature: float = 0.7,
         top_p: float = 0.9,
+        min_p: float = 0.0,
+        top_k: int = 0,
     ):
         """Create a sampler for text generation."""
         from mlx_lm.sample_utils import make_sampler
@@ -114,6 +116,8 @@ class MLXLanguageModel:
         return make_sampler(
             temp=temperature,
             top_p=top_p,
+            min_p=min_p,
+            top_k=top_k,
         )
 
     def generate(
@@ -122,6 +126,8 @@ class MLXLanguageModel:
         max_tokens: int = 256,
         temperature: float = 0.7,
         top_p: float = 0.9,
+        min_p: float = 0.0,
+        top_k: int = 0,
         repetition_penalty: float = 1.0,
         stop: list[str] | None = None,
     ) -> GenerationOutput:
@@ -145,7 +151,7 @@ class MLXLanguageModel:
         from mlx_lm import generate
 
         # Create sampler with parameters
-        sampler = self._create_sampler(temperature, top_p)
+        sampler = self._create_sampler(temperature, top_p, min_p, top_k)
 
         # Generate text
         output_text = generate(
@@ -175,6 +181,8 @@ class MLXLanguageModel:
         max_tokens: int = 256,
         temperature: float = 0.7,
         top_p: float = 0.9,
+        min_p: float = 0.0,
+        top_k: int = 0,
         repetition_penalty: float = 1.0,
         stop: list[str] | None = None,
     ) -> Iterator[StreamingOutput]:
@@ -198,7 +206,7 @@ class MLXLanguageModel:
         from mlx_lm import stream_generate
 
         # Create sampler with parameters
-        sampler = self._create_sampler(temperature, top_p)
+        sampler = self._create_sampler(temperature, top_p, min_p, top_k)
 
         token_count = 0
         accumulated_text = ""
@@ -244,7 +252,10 @@ class MLXLanguageModel:
         max_tokens: int = 256,
         temperature: float = 0.7,
         top_p: float = 0.9,
+        min_p: float = 0.0,
+        top_k: int = 0,
         tools: list | None = None,
+        chat_template_kwargs: dict | None = None,
         **kwargs,
     ) -> GenerationOutput:
         """
@@ -255,7 +266,10 @@ class MLXLanguageModel:
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature
             top_p: Top-p sampling parameter
+            min_p: Min-p sampling threshold
+            top_k: Top-k sampling threshold
             tools: Optional list of tools for function calling
+            chat_template_kwargs: Extra kwargs forwarded to apply_chat_template
             **kwargs: Additional generation parameters
 
         Returns:
@@ -272,6 +286,10 @@ class MLXLanguageModel:
                 "add_generation_prompt": True,
             }
 
+            # Merge caller-provided chat_template_kwargs
+            if chat_template_kwargs:
+                template_kwargs.update(chat_template_kwargs)
+
             # Add tools if provided and supported
             if tools:
                 template_kwargs["tools"] = tools
@@ -282,8 +300,9 @@ class MLXLanguageModel:
                     **template_kwargs,
                 )
             except TypeError:
-                # Tokenizer doesn't support tools parameter
-                del template_kwargs["tools"]
+                # Tokenizer doesn't support some kwargs, strip unsupported ones
+                for key in ["tools", "enable_thinking"]:
+                    template_kwargs.pop(key, None)
                 prompt = self.tokenizer.apply_chat_template(
                     messages,
                     **template_kwargs,
@@ -298,6 +317,8 @@ class MLXLanguageModel:
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
+            min_p=min_p,
+            top_k=top_k,
             **kwargs,
         )
 
