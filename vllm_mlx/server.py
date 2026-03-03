@@ -55,8 +55,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-# Chat conversation logger
-from .chat_logger import log_chat
+# Chat conversation logger (removed – logging handled by external proxy)
 
 # Import from new modular API
 # Re-export for backwards compatibility with tests
@@ -1475,21 +1474,6 @@ async def create_chat_completion(request: ChatCompletionRequest, raw_request: Re
     # Determine finish reason
     finish_reason = "tool_calls" if tool_calls else output.finish_reason
 
-    # Log conversation to JSONL
-    response_text = clean_output_text(cleaned_text) if cleaned_text else (output.text or "")
-    log_chat(
-        messages=messages,
-        assistant_response=response_text,
-        metadata={
-            "model": request.model,
-            "stream": False,
-            "prompt_tokens": output.prompt_tokens,
-            "completion_tokens": output.completion_tokens,
-            "latency_s": round(elapsed, 3),
-            "finish_reason": finish_reason,
-        },
-    )
-
     return ChatCompletionResponse(
         model=request.model,
         choices=[
@@ -2142,19 +2126,6 @@ async def stream_chat_completion(
     tokens_per_sec = completion_tokens / elapsed if elapsed > 0 else 0
     logger.info(
         f"Chat completion (stream): {completion_tokens} tokens in {elapsed:.2f}s ({tokens_per_sec:.1f} tok/s)"
-    )
-
-    # Log conversation to JSONL
-    log_chat(
-        messages=messages,
-        assistant_response=accumulated_text,
-        metadata={
-            "model": request.model,
-            "stream": True,
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "latency_s": round(elapsed, 3),
-        },
     )
 
     # Send final chunk with usage if requested
