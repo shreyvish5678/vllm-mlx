@@ -397,11 +397,14 @@ class SimpleEngine(BaseEngine):
 
             try:
                 prompt = tokenizer.apply_chat_template(messages, **template_kwargs)
-            except TypeError:
+                if template_tools:
+                    logger.info(f"[chat_template] Tools included in prompt ({len(template_tools)} tools)")
+            except TypeError as e:
                 # Some templates don't support all kwargs
-                for key in ["tools", "enable_thinking"]:
-                    if key in template_kwargs:
-                        del template_kwargs[key]
+                dropped = [key for key in ["tools", "enable_thinking"] if key in template_kwargs]
+                for key in dropped:
+                    del template_kwargs[key]
+                logger.warning(f"[chat_template] TypeError: {e} — dropped kwargs: {dropped}")
                 prompt = tokenizer.apply_chat_template(messages, **template_kwargs)
         else:
             prompt = "\n".join(f"{m['role']}: {m['content']}" for m in messages)
